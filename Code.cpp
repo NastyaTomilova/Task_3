@@ -44,48 +44,57 @@ vector<Fileinfo> compare_lists(vector<Fileinfo> newfl, vector<Fileinfo> oldfl) {
 	return newfl;
 }
 
-void SaveBson (string filename, vector<Fileinfo> vec_finfo){
+void SaveBson(string filename, vector<Fileinfo> vec_finfo){
 	mongo::BSONArrayBuilder array;
 	for (Fileinfo it : vec_finfo){
 		bson::bob element;
 		element.append("path", it.path);
 		element.append("size", it.size);
 		element.append("hash", it.hash);
-	
+
 		//mongo::BSONArrayBuilder array1;
 		array.append(element.obj());
 	}
-	
+
 	bson::bo serializedArray = array.arr();
 
 	//Add array into more general object
 	bson::bob container;
 	container.appendArray("elements", serializedArray);
 	bson::bo p = container.obj();
-	std::ofstream fbson( "./fileout.bson", std::ios::binary | std::ios::out | std::ios::trunc );
+	std::ofstream fbson("./fileout.bson", std::ios::binary | std::ios::out | std::ios::trunc);
 	fbson.clear();
 	fbson.write(p.objdata(), p.objsize());
 	fbson.close();
 }
 
-void get_dir_list(fs::directory_iterator iterator, std::vector<Fileinfo> * vec_finfo) {  
-	Fileinfo finfo; 
+void SaveCSV(vector<Fileinfo> vec_finfo){
+	ofstream fout("result.csv");
+	for (Fileinfo it : vec_finfo){
+		fout << it.path << ";" << it.size << ";" << it.hash << ";" << endl;
+	}
+	fout.close();
+	cout << "\n" << "result.csv in project current directory" << endl;
+}
+
+void get_dir_list(fs::directory_iterator iterator, std::vector<Fileinfo> * vec_finfo) {
+	Fileinfo finfo;
 	for (; iterator != fs::directory_iterator(); ++iterator)
 	{
-		if (fs::is_directory(iterator->status())) { 
+		if (fs::is_directory(iterator->status())) {
 			fs::directory_iterator sub_dir(iterator->path());
 			get_dir_list(sub_dir, vec_finfo);
 
 		}
-		else 
+		else
 		{
 			finfo.path = iterator->path().string();
-		    finfo.size = fs::file_size(iterator->path());
+			finfo.size = fs::file_size(iterator->path());
 			// SHA256
 			stringstream result;
 			string a;
 			ifstream myfile;
-			myfile.open(finfo.path, ios::binary);	
+			myfile.open(finfo.path, ios::binary);
 			result << myfile.rdbuf();
 			a = result.str();
 			SHA256 sha256;
@@ -102,36 +111,52 @@ void ReadBson(vector<Fileinfo> & vec_finfo){
 	string path_copy;
 	string size_copy;
 	string hash_copy;
-	std::ofstream fbson( "./fileout.bson", std::ios::binary | std::ios::in);
-    stringstream buffer;
-    buffer << fbson.rdbuf();
-    fbson.close();
-    auto data = buffer.str(); 
+	std::ofstream fbson("./fileout.bson", std::ios::binary | std::ios::in);
+	stringstream buffer;
+	buffer << fbson.rdbuf();
+	fbson.close();
+	auto data = buffer.str();
 
-    bson::bo b(data.c_str());
-    auto name = "elements";
-    bson::be elements = b.getFieldDottedOrArray(name);
+	bson::bo b(data.c_str());
+	auto name = "elements";
+	bson::be elements = b.getFieldDottedOrArray(name);
 
-    for(auto & element : elements.Array()) {
+	for (auto & element : elements.Array()) {
 		bson::bo data = element.Obj();
-        if( data.hasElement("path") && data.hasElement("size") && data.hasElement("hash") ) {
+		if (data.hasElement("path") && data.hasElement("size") && data.hasElement("hash")) {
 			path_copy = data["path"];
-			path_copy.erase (0,7); 
-			path_copy.erase (path_copy.length() - 1,1); 
+			path_copy.erase(0, 7);
+			path_copy.erase(path_copy.length() - 1, 1);
 			it.path = path_copy;
 			size_copy = data["size"];
-			size_copy.erase (0,5); 
+			size_copy.erase(0, 5);
 			it.size = stoi(size_copy);
 			hash_copy = data["hash"];
-			hash_copy.erase (0,7); 
-			hash_copy.erase (hash_copy.length() - 1,1);
+			hash_copy.erase(0, 7);
+			hash_copy.erase(hash_copy.length() - 1, 1);
 			it.hash = hash_copy;
 			vec_finfo.push_back(it);
-        }
-    }
+		}
+	}
 }
 
-void print (vector<Fileinfo> vec){
+void ReadCSV(vector<Fileinfo> & vec_finfo){
+	ifstream file;
+	file.open("result.csv", ios::in);
+	Fileinfo it;
+	string size_copy;
+	while (file.good()){
+		getline(file, it.path, ';');
+		getline(file, size_copy, ';');
+		it.size = stoi(size_copy);
+		getline(file, it.hash, ';');
+		it.flag = "NEW";
+		vec_finfo.push_back(it);
+	}
+	vec_finfo.pop_back();
+}
+
+void print(vector<Fileinfo> vec){
 	for (Fileinfo it : vec){
 		cout << it.path << " : " << it.size << " : " << it.hash << " : " << it.flag << endl;
 	}
@@ -143,12 +168,12 @@ int main(){
 	string checkstatus;
 
 	getline(cin, checkstatus);
-	
+
 	cout << "Enter path ->" << endl;
 	vector<Fileinfo> vec_finfo;
 	vector<Fileinfo> vec_finfo_old;
 	vector<Fileinfo> vec_finfo_new;
-	
+
 	getline(cin, path);
 
 
@@ -156,21 +181,45 @@ int main(){
 		cout << "The directory not found. Try again." << endl;
 		checkstatus = "null";
 	}
-    
+
 	else {
 		fs::directory_iterator home_dir(path);
 		get_dir_list(home_dir, &vec_finfo);
 	}
-	if (checkstatus == "save") {	
-		SaveBson ("out.bson", vec_finfo);
-		print(vec_finfo);
+	
+	cout << "What do you want: save and check on CSV (press 1) or BSON (press 2) ?" << endl;
+	string checkstatus2;
+
+	getline(cin, checkstatus2);
+	
+	if (checkstatus2 == "2")
+	{
+		cout << "Enter path ->" << endl;
+		if (checkstatus == "save") {
+			SaveBson("out.bson", vec_finfo);
+			print(vec_finfo);
+		}
+		if (checkstatus == "check") {
+			ReadBson(vec_finfo_old);
+			vec_finfo_new = compare_lists(vec_finfo, vec_finfo_old);
+			print(vec_finfo_new);
+		}
 	}
-	if (checkstatus == "check") {
-		ReadBson(vec_finfo_old);
-		vec_finfo_new = compare_lists(vec_finfo, vec_finfo_old);
-		print (vec_finfo_new);
+	
+	if (checkstatus2 == "1")
+	{
+		cout << "Enter path ->" << endl;
+		if (checkstatus == "save") {
+			SaveCSV("out.csv", vec_finfo);
+			print(vec_finfo);
+		}
+		if (checkstatus == "check") {
+			ReadCSV(vec_finfo_old);
+			vec_finfo_new = compare_lists(vec_finfo, vec_finfo_old);
+			print(vec_finfo_new);
+		}
 	}
+
 	cin.get();
 	return 0;
 }
-
